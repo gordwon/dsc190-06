@@ -131,7 +131,9 @@ def _parse_duration(text: str) -> tuple[int, str]:
     if match is None:
         raise ValueError(f"invalid duration: {text!r}")
     amount_text, unit_text = match.groups()
-    amount = 1 if amount_text is None or amount_text in ("a", "an") else int(amount_text)
+    amount = (
+        1 if amount_text is None or amount_text in ("a", "an") else int(amount_text)
+    )
     unit = _UNIT_ALIASES.get(unit_text)
     if unit is None:
         raise ValueError(f"invalid duration unit: {unit_text!r}")
