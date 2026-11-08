@@ -127,13 +127,14 @@ def _normalize(text: str) -> str:
 
 
 def _parse_duration(text: str) -> tuple[int, str]:
-    match = re.fullmatch(r"(\d+)\s+([a-z]+)", text)
+    match = re.fullmatch(r"(?:(\d+|an?)\s+)?([a-z]+)", text)
     if match is None:
         raise ValueError(f"invalid duration: {text!r}")
-    amount = int(match.group(1))
-    unit = _UNIT_ALIASES.get(match.group(2))
+    amount_text, unit_text = match.groups()
+    amount = 1 if amount_text is None or amount_text in ("a", "an") else int(amount_text)
+    unit = _UNIT_ALIASES.get(unit_text)
     if unit is None:
-        raise ValueError(f"invalid duration unit: {match.group(2)!r}")
+        raise ValueError(f"invalid duration unit: {unit_text!r}")
     return amount, unit
 
 
@@ -238,9 +239,7 @@ def parse(text: str, today: date | None = None) -> date:
     if not normalized:
         raise ValueError("cannot parse an empty string")
 
-    if normalized == "today":
-        return today
-    if normalized == "now":
+    if normalized in ("today", "now"):
         return today
     if normalized == "tomorrow":
         return today + timedelta(days=1)
