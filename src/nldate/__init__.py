@@ -84,6 +84,10 @@ _UNIT_ALIASES = {
     "months": "month",
     "year": "year",
     "years": "year",
+    "hour": "hour",
+    "hours": "hour",
+    "minute": "minute",
+    "minutes": "minute",
 }
 
 
@@ -116,6 +120,7 @@ def _normalize_number_words(text: str) -> str:
 def _normalize(text: str) -> str:
     normalized = re.sub(r"\s+", " ", text.strip().lower())
     normalized = re.sub(r"(\d+)(?:st|nd|rd|th)\b", r"\1", normalized)
+    normalized = re.sub(r"\b(?:a|an)\b", "1", normalized)
     normalized = _normalize_number_words(normalized)
     normalized = re.sub(r"^(?:on|the)\s+", "", normalized)
     return normalized
@@ -130,6 +135,11 @@ def _parse_duration(text: str) -> tuple[int, str]:
     if unit is None:
         raise ValueError(f"invalid duration unit: {match.group(2)!r}")
     return amount, unit
+
+
+def _parse_durations(text: str) -> list[tuple[int, str]]:
+    parts = re.split(r"\s*(?:,|\band\b)\s*", text)
+    return [_parse_duration(part) for part in parts if part]
 
 
 def _add_months(value: date, months: int) -> date:
@@ -155,6 +165,10 @@ def _shift(value: date, amount: int, unit: str) -> date:
         return _add_months(value, amount)
     if unit == "year":
         return _add_years(value, amount)
+    if unit == "hour":
+        return value + timedelta(hours=amount)
+    if unit == "minute":
+        return value + timedelta(minutes=amount)
     raise ValueError(f"invalid unit: {unit!r}")
 
 
@@ -169,7 +183,7 @@ def _resolve_year(month: int, day: int, year: int | None, today: date) -> date:
 
 
 def _parse_explicit(text: str, today: date) -> date:
-    iso_match = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
+    iso_match = re.fullmatch(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", text)
     if iso_match is not None:
         year, month, day = (int(part) for part in iso_match.groups())
         return date(year, month, day)
@@ -226,12 +240,14 @@ def parse(text: str, today: date | None = None) -> date:
 
     if normalized == "today":
         return today
+    if normalized == "now":
+        return today
     if normalized == "tomorrow":
         return today + timedelta(days=1)
     if normalized == "yesterday":
         return today - timedelta(days=1)
 
-    weekday_match = re.fullmatch(r"(next|last)\s+([a-z]+)", normalized)
+    weekday_match = re.fullmatch(r"(?:(next|last|this)\s+)?([a-z]+)", normalized)
     if weekday_match is not None:
         direction, weekday_name = weekday_match.groups()
         if weekday_name in _WEEKDAYS:
@@ -239,34 +255,54 @@ def parse(text: str, today: date | None = None) -> date:
             if direction == "next":
                 days = (target - today.weekday()) % 7 or 7
                 return today + timedelta(days=days)
-            days = (today.weekday() - target) % 7 or 7
-            return today - timedelta(days=days)
+            if direction == "last":
+                days = (today.weekday() - target) % 7 or 7
+                return today - timedelta(days=days)
+            return today + timedelta(days=(target - today.weekday()) % 7)
 
-    relative_match = re.fullmatch(
-        r"(?:in\s+)?(\d+)\s+([a-z]+)(?:\s+(ago|from\s+(?:now|today)))?",
-        normalized,
-    )
-    if relative_match is not None:
-        amount_text, unit_text, suffix = relative_match.groups()
-        unit = _UNIT_ALIASES.get(unit_text)
-        if unit is not None:
-            amount = int(amount_text)
-            if suffix == "ago":
-                amount = -amount
-            elif suffix is None and not normalized.startswith("in "):
-                raise ValueError(f"could not parse date: {text!r}")
-            return _shift(today, amount, unit)
+    period_match = re.fullmatch(r"(next|last)\s+(week|month|year)", normalized)
+    if period_match is not None:
+        direction, unit = period_match.groups()
+        amount = 1 if direction == "next" else -1
+        return _shift(today, amount, unit)
 
-    offset_match = re.fullmatch(r"(\d+)\s+([a-z]+)\s+(before|after)\s+(.+)", normalized)
+    offset_match = re.fullmatch(r"(.+?)\s+(before|after|from)\s+(.+)", normalized)
     if offset_match is not None:
-        amount_text, unit_text, direction, base_text = offset_match.groups()
-        unit = _UNIT_ALIASES.get(unit_text)
-        if unit is not None:
-            base = _parse_explicit(base_text, today)
-            amount = int(amount_text)
-            if direction == "before":
-                amount = -amount
-            return _shift(base, amount, unit)
+        duration_text, direction, base_text = offset_match.groups()
+        try:
+            durations = _parse_durations(duration_text)
+        except ValueError:
+            durations = []
+        if durations:
+            base = parse(base_text, today)
+            sign = -1 if direction == "before" else 1
+            for amount, unit in durations:
+                base = _shift(base, sign * amount, unit)
+            return base
+
+    in_match = re.fullmatch(r"in\s+(.+)", normalized)
+    if in_match is not None:
+        try:
+            durations = _parse_durations(in_match.group(1))
+        except ValueError:
+            durations = []
+        if durations:
+            base = today
+            for amount, unit in durations:
+                base = _shift(base, amount, unit)
+            return base
+
+    ago_match = re.fullmatch(r"(.+?)\s+ago", normalized)
+    if ago_match is not None:
+        try:
+            durations = _parse_durations(ago_match.group(1))
+        except ValueError:
+            durations = []
+        if durations:
+            base = today
+            for amount, unit in durations:
+                base = _shift(base, -amount, unit)
+            return base
 
     return _parse_explicit(normalized, today)
 
