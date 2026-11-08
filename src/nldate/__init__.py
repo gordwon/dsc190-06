@@ -179,9 +179,7 @@ def _parse_explicit(text: str, today: date) -> date:
         month, day, year = (int(part) for part in numeric_match.groups())
         return date(year, month, day)
 
-    month_first = re.fullmatch(
-        r"([a-z]+)\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?", text
-    )
+    month_first = re.fullmatch(r"([a-z]+)\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?", text)
     if month_first is not None:
         month_name, day_text, year_text = month_first.groups()
         month = _month_number(month_name)
@@ -259,9 +257,7 @@ def parse(text: str, today: date | None = None) -> date:
                 raise ValueError(f"could not parse date: {text!r}")
             return _shift(today, amount, unit)
 
-    offset_match = re.fullmatch(
-        r"(\d+)\s+([a-z]+)\s+(before|after)\s+(.+)", normalized
-    )
+    offset_match = re.fullmatch(r"(\d+)\s+([a-z]+)\s+(before|after)\s+(.+)", normalized)
     if offset_match is not None:
         amount_text, unit_text, direction, base_text = offset_match.groups()
         unit = _UNIT_ALIASES.get(unit_text)
